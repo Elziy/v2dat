@@ -11,7 +11,7 @@ var unpack = &cobra.Command{
 }
 
 func init() {
-	unpack.AddCommand(newGeoSiteCmd(), newGeoIPCmd())
+	unpack.AddCommand(newGeoSiteCmd(), newGeoSitePrintCmd(), newGeoIPCmd(), newGeoIPPrintCmd())
 	cmd.RootCmd.AddCommand(unpack)
 }
 

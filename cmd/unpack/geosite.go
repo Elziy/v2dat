@@ -37,6 +37,79 @@ func newGeoSiteCmd() *cobra.Command {
 	return c
 }
 
+func newGeoSitePrintCmd() *cobra.Command {
+	args := new(unpackArgs)
+	c := &cobra.Command{
+		Use:   "geosite-print [-f tag[@attr]...]... geosite.dat",
+		Args:  cobra.ExactArgs(1),
+		Short: "Print geosite file to stdout.",
+		Run: func(cmd *cobra.Command, a []string) {
+			args.file = a[0]
+			if err := printGeoSite(args); err != nil {
+				logger.Fatal("failed to print geosite", zap.Error(err))
+			}
+
+		},
+		DisableFlagsInUseLine: true,
+	}
+	c.Flags().StringArrayVarP(&args.filters, "filter", "f", nil, "unpack given tag and attrs")
+	return c
+}
+
+func printGeoSite(args *unpackArgs) error {
+	filePath, suffixes := args.file, args.filters
+	b, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	geoSiteList, err := v2data.LoadGeoSiteList(b)
+	if err != nil {
+		return err
+	}
+
+	entries := make(map[string][]*v2data.Domain)
+	for _, geoSite := range geoSiteList.GetEntry() {
+		tag := strings.ToLower(geoSite.GetCountryCode())
+		entries[tag] = geoSite.GetDomain()
+	}
+
+	save := func(suffix string, data []*v2data.Domain) error {
+		fmt.Println("NAME:", suffix, "\nTOTAL:", len(data), "\npayload:")
+		for _, d := range data {
+			fmt.Print("  - ", d.Type, ",", d.Value)
+			if d.Attribute != nil {
+				for _, attr := range d.Attribute {
+					fmt.Print(" @", attr.Key)
+				}
+			}
+			fmt.Println()
+		}
+
+		return nil
+	}
+
+	if len(suffixes) > 0 {
+		for _, suffix := range suffixes {
+			tag, attrs := splitAttrs(suffix)
+			entry, ok := entries[tag]
+			if !ok {
+				return fmt.Errorf("cannot find entry %s", tag)
+			}
+			entry = filterAttrs(entry, attrs)
+			if err := save(suffix, entry); err != nil {
+				return fmt.Errorf("failed to save %s, %w", suffix, err)
+			}
+		}
+	} else { // If tag is omitted, unpack all tags.
+		for tag, domains := range entries {
+			if err := save(tag, domains); err != nil {
+				return fmt.Errorf("failed to save %s, %w", tag, err)
+			}
+		}
+	}
+	return nil
+}
+
 func unpackGeoSite(args *unpackArgs) error {
 	filePath, suffixes, outDir := args.file, args.filters, args.outDir
 	b, err := os.ReadFile(filePath)
@@ -55,17 +128,23 @@ func unpackGeoSite(args *unpackArgs) error {
 	}
 
 	save := func(suffix string, data []*v2data.Domain) error {
+		// 打印data
+		for _, d := range data {
+			fmt.Println(d)
+		}
 		file := fmt.Sprintf("%s_%s.txt", fileName(filePath), suffix)
 		if len(outDir) > 0 {
 			file = filepath.Join(outDir, file)
 		}
-		logger.Info(
-			"unpacking entry",
-			zap.String("tag", suffix),
-			zap.Int("length", len(data)),
-			zap.String("file", file),
-		)
-		return convertV2DomainToTextFile(data, file)
+		//logger.Info(
+		//	"unpacking entry",
+		//	zap.String("tag", suffix),
+		//	zap.Int("length", len(data)),
+		//	zap.String("file", file),
+		//)
+
+		//return convertV2DomainToTextFile(data, file)
+		return nil
 	}
 
 	if len(suffixes) > 0 {

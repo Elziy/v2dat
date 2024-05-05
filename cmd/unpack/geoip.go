@@ -32,6 +32,65 @@ func newGeoIPCmd() *cobra.Command {
 	return c
 }
 
+func newGeoIPPrintCmd() *cobra.Command {
+	args := new(unpackArgs)
+	c := &cobra.Command{
+		Use:   "geoip-print [-f tag]... geoip.dat",
+		Args:  cobra.ExactArgs(1),
+		Short: "Print geoip file to stdout.",
+		Run: func(cmd *cobra.Command, a []string) {
+			args.file = a[0]
+			if err := printGeoIP(args); err != nil {
+				logger.Fatal("failed to print geoip", zap.Error(err))
+			}
+		},
+		DisableFlagsInUseLine: true,
+	}
+	c.Flags().StringArrayVarP(&args.filters, "filter", "f", nil, "unpack given tag")
+	return c
+}
+
+func printGeoIP(args *unpackArgs) error {
+	filePath, wantTags := args.file, args.filters
+	b, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	geoIPList, err := v2data.LoadGeoIPListFromDAT(b)
+	if err != nil {
+		return err
+	}
+
+	entries := make(map[string]*v2data.GeoIP)
+	for _, geoSite := range geoIPList.GetEntry() {
+		tag := strings.ToLower(geoSite.GetCountryCode())
+		entries[tag] = geoSite
+	}
+
+	for _, tag := range wantTags {
+		entry, ok := entries[tag]
+		if !ok {
+			return fmt.Errorf("cannot find entry %s", tag)
+		}
+		fmt.Printf("NAME: %s\n", tag)
+		fmt.Println("TOTAL:", len(entry.GetCidr()))
+		fmt.Println("payload:")
+
+		for _, record := range entry.GetCidr() {
+			ip, ok := netip.AddrFromSlice(record.Ip)
+			if !ok {
+				return fmt.Errorf("invalid ip at index #%d, %s", record.Ip)
+			}
+			prefix, err := ip.Prefix(int(record.Prefix))
+			if !ok {
+				return fmt.Errorf("invalid prefix at index #%d, %w", err)
+			}
+			fmt.Println("  -", prefix.String())
+		}
+	}
+	return nil
+}
+
 func unpackGeoIP(args *unpackArgs) error {
 	filePath, wantTags, ourDir := args.file, args.filters, args.outDir
 	b, err := os.ReadFile(filePath)
